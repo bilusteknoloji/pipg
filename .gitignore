@@ -1,5 +1,6 @@
 # Binaries
 /pipg
+cmd/pipg/pipg
 *.exe
 *.dll
 *.so
