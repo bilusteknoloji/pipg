@@ -1,4 +1,6 @@
 ![Version](https://img.shields.io/badge/version-0.0.0-orange.svg)
+[![Run go tests](https://github.com/bilusteknoloji/pipg/actions/workflows/test.yml/badge.svg)](https://github.com/bilusteknoloji/pipg/actions/workflows/test.yml)
+[![Run golangci-lint](https://github.com/bilusteknoloji/pipg/actions/workflows/lint.yml/badge.svg)](https://github.com/bilusteknoloji/pipg/actions/workflows/lint.yml)
 
 # pipg
 
