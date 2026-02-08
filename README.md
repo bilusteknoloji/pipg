@@ -17,8 +17,16 @@ It simply installs packages, just like `pip install`, but faster.
 
 ## Installation
 
+Install from source:
+
 ```bash
 go install github.com/bilusteknoloji/pipg/cmd/pipg@latest
+```
+
+Install from `brew`:
+
+```bash
+brew install bilusteknoloji/pipg/pipg
 ```
 
 ---
