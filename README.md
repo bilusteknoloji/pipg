@@ -2,8 +2,8 @@
 
 # pipg
 
-A fast Python package installer written in Go. Drop-in replacement for `pip install`
-- downloads packages concurrently using goroutines.
+A fast Python package installer written in Go. Drop-in replacement for `pip install` - downloads 
+packages concurrently using goroutines.
 
 **pipg is NOT** a project manager, virtual environment manager, or build tool.
 It simply installs packages, just like `pip install`, but faster.
