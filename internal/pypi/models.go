@@ -3,9 +3,9 @@ package pypi
 // PackageInfo represents the top-level response from the PyPI JSON API.
 // Endpoint: GET https://pypi.org/pypi/{package_name}/json
 type PackageInfo struct {
-	Info     Info              `json:"info"`
-	URLs     []URL             `json:"urls"`
-	Releases map[string][]URL  `json:"releases"`
+	Info     Info             `json:"info"`
+	URLs     []URL            `json:"urls"`
+	Releases map[string][]URL `json:"releases"`
 }
 
 // Info contains package metadata from the PyPI API response.
@@ -37,7 +37,7 @@ type URL struct {
 
 // Digests contains hash digests for verifying downloaded files.
 type Digests struct {
-	SHA256    string `json:"sha256"`
-	MD5       string `json:"md5"`
+	SHA256     string `json:"sha256"`
+	MD5        string `json:"md5"`
 	Blake2b256 string `json:"blake2b_256"`
 }

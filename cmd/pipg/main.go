@@ -63,10 +63,18 @@ func run() error {
 	return rootCmd.Execute()
 }
 
-func runInstall(cmd *cobra.Command, args []string) error {
-	start := time.Now()
+// installFlags holds parsed CLI flags for the install command.
+type installFlags struct {
+	reqFile   string
+	jobs      int
+	pythonBin string
+	targetDir string
+	verbose   bool
+	dryRun    bool
+	noDeps    bool
+}
 
-	// Parse flags.
+func parseInstallFlags(cmd *cobra.Command) installFlags {
 	reqFile, _ := cmd.Flags().GetString("requirements")
 	jobs, _ := cmd.Flags().GetInt("jobs")
 	pythonBin, _ := cmd.Flags().GetString("python")
@@ -75,8 +83,14 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	noDeps, _ := cmd.Flags().GetBool("no-deps")
 
-	// Collect requirements from args and -r file.
-	requirements, err := collectRequirements(args, reqFile)
+	return installFlags{reqFile, jobs, pythonBin, targetDir, verbose, dryRun, noDeps}
+}
+
+func runInstall(cmd *cobra.Command, args []string) error {
+	start := time.Now()
+	flags := parseInstallFlags(cmd)
+
+	requirements, err := collectRequirements(args, flags.reqFile)
 	if err != nil {
 		return err
 	}
@@ -85,30 +99,79 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no packages specified; use 'pipg install <pkg>' or 'pipg install -r requirements.txt'")
 	}
 
-	// Setup logger.
+	logger := newLogger(flags.verbose)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	env, err := detectEnv(ctx, flags.pythonBin, flags.targetDir, logger)
+	if err != nil {
+		return err
+	}
+
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	pypiClient := pypi.New(pypi.WithHTTPClient(httpClient), pypi.WithLogger(logger))
+
+	resolved, err := resolveDeps(ctx, requirements, pypiClient, flags.noDeps, env, logger)
+	if err != nil {
+		return err
+	}
+
+	compatTags := buildCompatTags(env)
+
+	plans, err := selectWheels(ctx, resolved, pypiClient, compatTags, env)
+	if err != nil {
+		return err
+	}
+
+	if flags.dryRun {
+		printDryRun(plans)
+
+		return nil
+	}
+
+	results, tmpDir, err := downloadPackages(ctx, plans, flags.jobs, httpClient, logger)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	printDownloadResults(results)
+
+	fmt.Println("\nInstalling...")
+
+	inst := installer.New(env, installer.WithLogger(logger))
+	if err := inst.Install(ctx, results); err != nil {
+		return fmt.Errorf("installing packages: %w", err)
+	}
+
+	fmt.Printf("  ✓ %d packages installed\n", len(results))
+	fmt.Printf("\nDone in %.1fs\n", time.Since(start).Seconds())
+
+	return nil
+}
+
+func newLogger(verbose bool) *slog.Logger {
 	logLevel := slog.LevelWarn
 	if verbose {
 		logLevel = slog.LevelDebug
 	}
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel}))
+	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel}))
+}
 
-	// Context with SIGINT handling.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-
-	// Detect Python environment.
+func detectEnv(ctx context.Context, pythonBin, targetDir string, logger *slog.Logger) (*python.Environment, error) {
 	pyDetector := python.New(python.WithPythonBin(pythonBin))
 
 	env, err := pyDetector.Detect(ctx)
 	if err != nil {
-		return fmt.Errorf("detecting Python environment: %w", err)
+		return nil, fmt.Errorf("detecting Python environment: %w", err)
 	}
 
 	if targetDir != "" {
 		absTarget, err := filepath.Abs(targetDir)
 		if err != nil {
-			return fmt.Errorf("resolving target directory: %w", err)
+			return nil, fmt.Errorf("resolving target directory: %w", err)
 		}
 
 		env.SitePackages = absTarget
@@ -122,18 +185,13 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		slog.Bool("venv", env.IsVirtualEnv),
 	)
 
-	markerEnv := buildMarkerEnv(env)
-	compatTags := buildCompatTags(env)
+	return env, nil
+}
 
-	// Create shared HTTP client and PyPI client.
-	httpClient := &http.Client{Timeout: 30 * time.Second}
-	pypiClient := pypi.New(
-		pypi.WithHTTPClient(httpClient),
-		pypi.WithLogger(logger),
-	)
-
-	// --- Resolve dependencies ---
+func resolveDeps(ctx context.Context, requirements []string, pypiClient pypi.Client, noDeps bool, env *python.Environment, logger *slog.Logger) ([]resolver.ResolvedPackage, error) {
 	fmt.Println("Resolving dependencies...")
+
+	markerEnv := buildMarkerEnv(env)
 
 	resolverSvc := resolver.New(pypiClient,
 		resolver.WithNoDeps(noDeps),
@@ -143,7 +201,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 	resolved, err := resolverSvc.Resolve(ctx, requirements)
 	if err != nil {
-		return fmt.Errorf("resolving dependencies: %w", err)
+		return nil, fmt.Errorf("resolving dependencies: %w", err)
 	}
 
 	resolvedMap := make(map[string]resolver.ResolvedPackage, len(resolved))
@@ -153,55 +211,92 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 	rootNames := make([]string, 0, len(requirements))
 	for _, r := range requirements {
-		name := resolver.NormalizeName(resolver.ParseRequirement(r).Name)
-		rootNames = append(rootNames, name)
+		rootNames = append(rootNames, resolver.NormalizeName(resolver.ParseRequirement(r).Name))
 	}
 
 	printDependencyTree(rootNames, resolvedMap)
 
-	// --- Select wheels ---
-	type downloadPlan struct {
-		pkg      resolver.ResolvedPackage
-		wheelURL pypi.URL
+	return resolved, nil
+}
+
+func printDryRun(plans []downloadPlan) {
+	fmt.Printf("\nWould download %d packages:\n", len(plans))
+
+	for _, p := range plans {
+		fmt.Printf("  %s (%s)\n", p.wheelURL.Filename, formatSize(p.wheelURL.Size))
 	}
 
+	fmt.Println("\nDry run, no changes made.")
+}
+
+func printDownloadResults(results []downloader.Result) {
+	for _, r := range results {
+		suffix := ""
+		if r.Cached {
+			suffix = " (cached)"
+		}
+
+		fmt.Printf("  ✓ %s (%s)%s\n", filepath.Base(r.FilePath), formatSize(r.Size), suffix)
+	}
+}
+
+type downloadPlan struct {
+	pkg      resolver.ResolvedPackage
+	wheelURL pypi.URL
+}
+
+// selectWheels finds a compatible wheel for each resolved package.
+func selectWheels(ctx context.Context, resolved []resolver.ResolvedPackage, client pypi.Client, compatTags []downloader.WheelTag, env *python.Environment) ([]downloadPlan, error) {
 	var plans []downloadPlan
 
 	for _, pkg := range resolved {
-		pkgInfo, err := pypiClient.GetPackageVersion(ctx, pkg.Name, pkg.Version)
+		pkgInfo, err := client.GetPackageVersion(ctx, pkg.Name, pkg.Version)
 		if err != nil {
-			return fmt.Errorf("fetching URLs for %s %s: %w", pkg.Name, pkg.Version, err)
+			return nil, fmt.Errorf("fetching URLs for %s %s: %w", pkg.Name, pkg.Version, err)
 		}
 
 		wheel, err := downloader.SelectWheel(pkgInfo.URLs, compatTags)
 		if err != nil {
-			return fmt.Errorf("no compatible wheel for %s %s (platform: %s, python: cp%s): %w",
+			return nil, fmt.Errorf("no compatible wheel for %s %s (platform: %s, python: cp%s): %w",
 				pkg.Name, pkg.Version, wheelPlatform(env.PlatformTag), env.PythonVersion, err)
 		}
 
 		plans = append(plans, downloadPlan{pkg: pkg, wheelURL: wheel})
 	}
 
-	// --- Dry run ---
-	if dryRun {
-		fmt.Printf("\nWould download %d packages:\n", len(plans))
+	return plans, nil
+}
 
-		for _, p := range plans {
-			fmt.Printf("  %s (%s)\n", p.wheelURL.Filename, formatSize(p.wheelURL.Size))
-		}
-
-		fmt.Println("\nDry run, no changes made.")
-
-		return nil
-	}
-
-	// --- Download ---
+// downloadPackages downloads all planned packages concurrently with cache support.
+// Caller is responsible for cleaning up tmpDir after installation.
+func downloadPackages(ctx context.Context, plans []downloadPlan, jobs int, httpClient *http.Client, logger *slog.Logger) ([]downloader.Result, string, error) {
 	tmpDir, err := os.MkdirTemp("", "pipg-downloads-*")
 	if err != nil {
-		return fmt.Errorf("creating temp directory: %w", err)
+		return nil, "", fmt.Errorf("creating temp directory: %w", err)
 	}
-	defer func() { _ = os.RemoveAll(tmpDir) }()
 
+	requests := buildDownloadRequests(plans)
+
+	workers := runtime.GOMAXPROCS(0)
+	if jobs > 0 {
+		workers = jobs
+	}
+
+	fmt.Printf("\nDownloading %d packages (%d workers)...\n", len(requests), workers)
+
+	dlManager := newDownloader(tmpDir, jobs, httpClient, logger)
+
+	results, err := dlManager.Download(ctx, requests)
+	if err != nil {
+		_ = os.RemoveAll(tmpDir)
+
+		return nil, "", fmt.Errorf("downloading packages: %w", err)
+	}
+
+	return results, tmpDir, nil
+}
+
+func buildDownloadRequests(plans []downloadPlan) []downloader.Request {
 	requests := make([]downloader.Request, len(plans))
 	for i, p := range plans {
 		requests[i] = downloader.Request{
@@ -213,13 +308,10 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	workers := runtime.GOMAXPROCS(0)
-	if jobs > 0 {
-		workers = jobs
-	}
+	return requests
+}
 
-	fmt.Printf("\nDownloading %d packages (%d workers)...\n", len(requests), workers)
-
+func newDownloader(tmpDir string, jobs int, httpClient *http.Client, logger *slog.Logger) *downloader.Manager {
 	wheelCache, err := cache.New(cache.WithLogger(logger))
 	if err != nil {
 		logger.Debug("cache unavailable, continuing without cache", slog.String("error", err.Error()))
@@ -238,35 +330,7 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		dlOpts = append(dlOpts, downloader.WithMaxWorkers(jobs))
 	}
 
-	dlManager := downloader.New(tmpDir, dlOpts...)
-
-	results, err := dlManager.Download(ctx, requests)
-	if err != nil {
-		return fmt.Errorf("downloading packages: %w", err)
-	}
-
-	for _, r := range results {
-		suffix := ""
-		if r.Cached {
-			suffix = " (cached)"
-		}
-
-		fmt.Printf("  ✓ %s (%s)%s\n", filepath.Base(r.FilePath), formatSize(r.Size), suffix)
-	}
-
-	// --- Install ---
-	fmt.Println("\nInstalling...")
-
-	inst := installer.New(env, installer.WithLogger(logger))
-
-	if err := inst.Install(ctx, results); err != nil {
-		return fmt.Errorf("installing packages: %w", err)
-	}
-
-	fmt.Printf("  ✓ %d packages installed\n", len(results))
-	fmt.Printf("\nDone in %.1fs\n", time.Since(start).Seconds())
-
-	return nil
+	return downloader.New(tmpDir, dlOpts...)
 }
 
 // collectRequirements merges CLI args and requirements file entries.

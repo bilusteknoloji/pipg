@@ -396,7 +396,7 @@ func TestWithLoggerIgnoresNil(t *testing.T) {
 // mockCache implements downloader.Cache for testing.
 type mockCache struct {
 	store map[string]string // filename → path
-	puts  []string         // filenames that were Put
+	puts  []string          // filenames that were Put
 }
 
 func newMockCache() *mockCache {

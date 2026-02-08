@@ -82,8 +82,21 @@ func (s *Service) installWheel(dl downloader.Result) error {
 	defer func() { _ = r.Close() }()
 
 	siteDir := s.env.SitePackages
-	dataSuffix := ".data/"
 
+	records, distInfoDir, err := s.extractWheelFiles(r, siteDir)
+	if err != nil {
+		return err
+	}
+
+	if distInfoDir == "" {
+		return fmt.Errorf("no .dist-info directory found in %s", dl.FilePath)
+	}
+
+	return s.finalizeInstall(siteDir, distInfoDir, records)
+}
+
+// extractWheelFiles extracts all files from a wheel archive and returns records and dist-info dir.
+func (s *Service) extractWheelFiles(r *zip.ReadCloser, siteDir string) ([]RecordEntry, string, error) {
 	var records []RecordEntry
 	var distInfoDir string
 
@@ -92,61 +105,73 @@ func (s *Service) installWheel(dl downloader.Result) error {
 			continue
 		}
 
-		destPath, category := s.resolveDestination(f.Name, siteDir, dataSuffix)
-		if destPath == "" {
-			continue
+		entry, dir, err := s.processWheelEntry(f, siteDir)
+		if err != nil {
+			return nil, "", err
 		}
 
-		// ZipSlip protection: ensure destination is within expected base.
-		base := s.baseForCategory(category, siteDir)
-		if !isInsideDir(destPath, base) {
-			return fmt.Errorf("zip slip detected: %s resolves outside %s", f.Name, base)
-		}
-
-		if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
-			return fmt.Errorf("creating directory for %s: %w", f.Name, err)
-		}
-
-		if err := extractFile(f, destPath); err != nil {
-			return fmt.Errorf("extracting %s: %w", f.Name, err)
-		}
-
-		// Make scripts executable.
-		if category == categoryScripts {
-			if err := os.Chmod(destPath, 0o755); err != nil {
-				return fmt.Errorf("setting executable permission on %s: %w", destPath, err)
-			}
-		}
-
-		// Track dist-info directory.
-		if strings.Contains(f.Name, ".dist-info/") {
-			dir := filepath.Join(siteDir, strings.SplitN(f.Name, "/", 2)[0])
+		if dir != "" {
 			distInfoDir = dir
 		}
 
-		// Compute relative path from site-packages for RECORD.
-		relPath, err := filepath.Rel(siteDir, destPath)
-		if err != nil {
-			relPath = f.Name
+		if entry != nil {
+			records = append(records, *entry)
 		}
-
-		hash, size, err := HashFile(destPath)
-		if err != nil {
-			return fmt.Errorf("hashing %s: %w", destPath, err)
-		}
-
-		records = append(records, RecordEntry{Path: relPath, Hash: hash, Size: size})
 	}
 
-	if distInfoDir == "" {
-		return fmt.Errorf("no .dist-info directory found in %s", dl.FilePath)
+	return records, distInfoDir, nil
+}
+
+// processWheelEntry extracts a single file from the wheel and returns its record entry.
+func (s *Service) processWheelEntry(f *zip.File, siteDir string) (*RecordEntry, string, error) {
+	destPath, category := s.resolveDestination(f.Name, siteDir, ".data/")
+	if destPath == "" {
+		return nil, "", nil
 	}
 
+	base := s.baseForCategory(category, siteDir)
+	if !isInsideDir(destPath, base) {
+		return nil, "", fmt.Errorf("zip slip detected: %s resolves outside %s", f.Name, base)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+		return nil, "", fmt.Errorf("creating directory for %s: %w", f.Name, err)
+	}
+
+	if err := extractFile(f, destPath); err != nil {
+		return nil, "", fmt.Errorf("extracting %s: %w", f.Name, err)
+	}
+
+	if category == categoryScripts {
+		if err := os.Chmod(destPath, 0o755); err != nil {
+			return nil, "", fmt.Errorf("setting executable permission on %s: %w", destPath, err)
+		}
+	}
+
+	var distInfoDir string
+	if strings.Contains(f.Name, ".dist-info/") {
+		distInfoDir = filepath.Join(siteDir, strings.SplitN(f.Name, "/", 2)[0])
+	}
+
+	relPath, err := filepath.Rel(siteDir, destPath)
+	if err != nil {
+		relPath = f.Name
+	}
+
+	hash, size, err := HashFile(destPath)
+	if err != nil {
+		return nil, "", fmt.Errorf("hashing %s: %w", destPath, err)
+	}
+
+	return &RecordEntry{Path: relPath, Hash: hash, Size: size}, distInfoDir, nil
+}
+
+// finalizeInstall writes INSTALLER, console scripts, and RECORD files.
+func (s *Service) finalizeInstall(siteDir, distInfoDir string, records []RecordEntry) error {
 	if err := WriteInstaller(distInfoDir); err != nil {
 		return fmt.Errorf("writing INSTALLER: %w", err)
 	}
 
-	// Add INSTALLER to records.
 	installerPath := filepath.Join(distInfoDir, "INSTALLER")
 
 	hash, size, err := HashFile(installerPath)
@@ -157,8 +182,8 @@ func (s *Service) installWheel(dl downloader.Result) error {
 	relInstaller, _ := filepath.Rel(siteDir, installerPath)
 	records = append(records, RecordEntry{Path: relInstaller, Hash: hash, Size: size})
 
-	// Generate console_scripts from entry_points.txt.
 	binDir := filepath.Join(s.env.Prefix, "bin")
+
 	scriptRecords, err := InstallConsoleScripts(distInfoDir, binDir, s.env.PythonPath)
 	if err != nil {
 		return fmt.Errorf("installing console scripts: %w", err)

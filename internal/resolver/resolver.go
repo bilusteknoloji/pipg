@@ -75,107 +75,44 @@ func New(client pypi.Client, opts ...Option) *Service {
 // It walks the dependency tree using BFS, finds compatible versions,
 // and returns the full list of packages to install.
 func (s *Service) Resolve(ctx context.Context, requirements []string) ([]ResolvedPackage, error) {
-	// Parse root requirements into the BFS queue.
 	var queue []Requirement
 	for _, r := range requirements {
 		queue = append(queue, ParseRequirement(r))
 	}
 
-	resolved := make(map[string]*ResolvedPackage)  // name → resolved info
-	constraints := make(map[string][]string)        // name → accumulated specifiers
-	processing := make(map[string]bool)             // names we've already fetched deps for
+	resolved := make(map[string]*ResolvedPackage)
+	constraints := make(map[string][]string)
+	processing := make(map[string]bool)
 
 	for len(queue) > 0 {
 		req := queue[0]
 		queue = queue[1:]
 
-		name := req.Name
-
-		// Accumulate constraint.
 		if req.Specifier != "" {
-			constraints[name] = append(constraints[name], req.Specifier)
+			constraints[req.Name] = append(constraints[req.Name], req.Specifier)
 		}
 
-		// If already resolved, verify the resolved version still satisfies all constraints.
-		if pkg, ok := resolved[name]; ok {
-			ok, err := MatchesAll(pkg.Version, constraints[name])
-			if err != nil {
-				return nil, fmt.Errorf("checking constraints for %s: %w", name, err)
-			}
-
-			if !ok {
-				return nil, fmt.Errorf("version conflict for %s: %s does not satisfy %v",
-					name, pkg.Version, constraints[name])
+		if pkg, ok := resolved[req.Name]; ok {
+			if err := s.verifyConstraints(pkg, constraints[req.Name]); err != nil {
+				return nil, err
 			}
 
 			continue
 		}
 
-		// Skip if we've already fetched and queued deps for this package.
-		if processing[name] {
+		if processing[req.Name] {
 			continue
 		}
 
-		processing[name] = true
+		processing[req.Name] = true
 
-		s.logger.Debug("resolving package", slog.String("name", name))
-
-		// Fetch package info from PyPI.
-		info, err := s.client.GetPackage(ctx, name)
+		pkg, deps, err := s.resolvePackage(ctx, req.Name, constraints[req.Name])
 		if err != nil {
-			return nil, fmt.Errorf("fetching %s from PyPI: %w", name, err)
+			return nil, err
 		}
 
-		// Collect available versions from releases.
-		versions := availableVersions(info)
-
-		// Find the highest version matching all constraints.
-		best, err := FindBestVersion(versions, constraints[name])
-		if err != nil {
-			return nil, fmt.Errorf("finding best version for %s: %w", name, err)
-		}
-
-		if best == "" {
-			return nil, fmt.Errorf("no compatible version found for %s matching %v", name, constraints[name])
-		}
-
-		s.logger.Debug("resolved version",
-			slog.String("name", name),
-			slog.String("version", best),
-		)
-
-		// Get requires_dist for the resolved version.
-		var deps []string
-
-		if best == info.Info.Version {
-			deps = info.Info.RequiresDist
-		} else {
-			versionInfo, err := s.client.GetPackageVersion(ctx, name, best)
-			if err != nil {
-				return nil, fmt.Errorf("fetching %s version %s: %w", name, best, err)
-			}
-
-			deps = versionInfo.Info.RequiresDist
-		}
-
-		resolved[name] = &ResolvedPackage{
-			Name:         name,
-			Version:      best,
-			Dependencies: filterDepNames(deps, s.markerEnv),
-		}
-
-		// Queue dependencies unless --no-deps.
-		if !s.noDeps {
-			for _, dep := range deps {
-				req := ParseRequirement(dep)
-
-				if req.Marker != "" && !EvalMarker(req.Marker, s.markerEnv) {
-					continue
-				}
-
-				queue = append(queue, req)
-			}
-		}
+		resolved[req.Name] = pkg
+		queue = append(queue, s.filterDeps(deps)...)
 	}
 
 	result := make([]ResolvedPackage, 0, len(resolved))
@@ -184,6 +121,90 @@ func (s *Service) Resolve(ctx context.Context, requirements []string) ([]Resolve
 	}
 
 	return result, nil
+}
+
+// verifyConstraints checks that a resolved package still satisfies all accumulated constraints.
+func (s *Service) verifyConstraints(pkg *ResolvedPackage, specs []string) error {
+	ok, err := MatchesAll(pkg.Version, specs)
+	if err != nil {
+		return fmt.Errorf("checking constraints for %s: %w", pkg.Name, err)
+	}
+
+	if !ok {
+		return fmt.Errorf("version conflict for %s: %s does not satisfy %v",
+			pkg.Name, pkg.Version, specs)
+	}
+
+	return nil
+}
+
+// resolvePackage fetches a package from PyPI, selects the best version, and returns
+// the resolved package along with its raw dependency list.
+func (s *Service) resolvePackage(ctx context.Context, name string, specs []string) (*ResolvedPackage, []string, error) {
+	s.logger.Debug("resolving package", slog.String("name", name))
+
+	info, err := s.client.GetPackage(ctx, name)
+	if err != nil {
+		return nil, nil, fmt.Errorf("fetching %s from PyPI: %w", name, err)
+	}
+
+	best, err := FindBestVersion(availableVersions(info), specs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("finding best version for %s: %w", name, err)
+	}
+
+	if best == "" {
+		return nil, nil, fmt.Errorf("no compatible version found for %s matching %v", name, specs)
+	}
+
+	s.logger.Debug("resolved version", slog.String("name", name), slog.String("version", best))
+
+	deps, err := s.fetchDeps(ctx, info, name, best)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pkg := &ResolvedPackage{
+		Name:         name,
+		Version:      best,
+		Dependencies: filterDepNames(deps, s.markerEnv),
+	}
+
+	return pkg, deps, nil
+}
+
+// fetchDeps returns requires_dist for a specific version.
+func (s *Service) fetchDeps(ctx context.Context, info *pypi.PackageInfo, name, version string) ([]string, error) {
+	if version == info.Info.Version {
+		return info.Info.RequiresDist, nil
+	}
+
+	versionInfo, err := s.client.GetPackageVersion(ctx, name, version)
+	if err != nil {
+		return nil, fmt.Errorf("fetching %s version %s: %w", name, version, err)
+	}
+
+	return versionInfo.Info.RequiresDist, nil
+}
+
+// filterDeps filters dependency strings by marker environment and returns parsed requirements.
+func (s *Service) filterDeps(deps []string) []Requirement {
+	if s.noDeps {
+		return nil
+	}
+
+	var reqs []Requirement
+
+	for _, dep := range deps {
+		req := ParseRequirement(dep)
+		if req.Marker != "" && !EvalMarker(req.Marker, s.markerEnv) {
+			continue
+		}
+
+		reqs = append(reqs, req)
+	}
+
+	return reqs
 }
 
 // availableVersions extracts version strings from a PackageInfo's releases.

@@ -71,10 +71,10 @@ func TestInstallSimpleWheel(t *testing.T) {
 	wheelPath := filepath.Join(wheelDir, "six-1.16.0-py3-none-any.whl")
 
 	createWheel(t, wheelPath, map[string]string{
-		"six.py":                            "# six compatibility library\n",
-		"six-1.16.0.dist-info/METADATA":     "Name: six\nVersion: 1.16.0\n",
-		"six-1.16.0.dist-info/WHEEL":        "Wheel-Version: 1.0\n",
-		"six-1.16.0.dist-info/RECORD":       "",
+		"six.py":                             "# six compatibility library\n",
+		"six-1.16.0.dist-info/METADATA":      "Name: six\nVersion: 1.16.0\n",
+		"six-1.16.0.dist-info/WHEEL":         "Wheel-Version: 1.0\n",
+		"six-1.16.0.dist-info/RECORD":        "",
 		"six-1.16.0.dist-info/top_level.txt": "six\n",
 	})
 
@@ -178,14 +178,14 @@ func TestInstallWithDataDirectory(t *testing.T) {
 	wheelPath := filepath.Join(wheelDir, "mypkg-1.0.0-py3-none-any.whl")
 
 	createWheel(t, wheelPath, map[string]string{
-		"mypkg/__init__.py":                       "# mypkg\n",
-		"mypkg-1.0.0.dist-info/METADATA":          "Name: mypkg\nVersion: 1.0.0\n",
-		"mypkg-1.0.0.dist-info/WHEEL":             "Wheel-Version: 1.0\n",
-		"mypkg-1.0.0.dist-info/RECORD":            "",
-		"mypkg-1.0.0.data/scripts/mypkg-cli":      "#!/usr/bin/env python3\nprint('hello')\n",
-		"mypkg-1.0.0.data/data/etc/mypkg.conf":    "key=value\n",
-		"mypkg-1.0.0.data/purelib/extra_mod.py":   "# extra module\n",
-		"mypkg-1.0.0.data/headers/mypkg/mypkg.h":  "#include <stdio.h>\n",
+		"mypkg/__init__.py":                      "# mypkg\n",
+		"mypkg-1.0.0.dist-info/METADATA":         "Name: mypkg\nVersion: 1.0.0\n",
+		"mypkg-1.0.0.dist-info/WHEEL":            "Wheel-Version: 1.0\n",
+		"mypkg-1.0.0.dist-info/RECORD":           "",
+		"mypkg-1.0.0.data/scripts/mypkg-cli":     "#!/usr/bin/env python3\nprint('hello')\n",
+		"mypkg-1.0.0.data/data/etc/mypkg.conf":   "key=value\n",
+		"mypkg-1.0.0.data/purelib/extra_mod.py":  "# extra module\n",
+		"mypkg-1.0.0.data/headers/mypkg/mypkg.h": "#include <stdio.h>\n",
 	})
 
 	svc := installer.New(env)
@@ -234,18 +234,18 @@ func TestInstallMultiplePackages(t *testing.T) {
 	// Create two wheels.
 	wheel1 := filepath.Join(wheelDir, "pkg_a-1.0.0-py3-none-any.whl")
 	createWheel(t, wheel1, map[string]string{
-		"pkg_a/__init__.py":                  "# a\n",
-		"pkg_a-1.0.0.dist-info/METADATA":     "Name: pkg-a\nVersion: 1.0.0\n",
-		"pkg_a-1.0.0.dist-info/WHEEL":        "Wheel-Version: 1.0\n",
-		"pkg_a-1.0.0.dist-info/RECORD":       "",
+		"pkg_a/__init__.py":              "# a\n",
+		"pkg_a-1.0.0.dist-info/METADATA": "Name: pkg-a\nVersion: 1.0.0\n",
+		"pkg_a-1.0.0.dist-info/WHEEL":    "Wheel-Version: 1.0\n",
+		"pkg_a-1.0.0.dist-info/RECORD":   "",
 	})
 
 	wheel2 := filepath.Join(wheelDir, "pkg_b-2.0.0-py3-none-any.whl")
 	createWheel(t, wheel2, map[string]string{
-		"pkg_b/__init__.py":                  "# b\n",
-		"pkg_b-2.0.0.dist-info/METADATA":     "Name: pkg-b\nVersion: 2.0.0\n",
-		"pkg_b-2.0.0.dist-info/WHEEL":        "Wheel-Version: 1.0\n",
-		"pkg_b-2.0.0.dist-info/RECORD":       "",
+		"pkg_b/__init__.py":              "# b\n",
+		"pkg_b-2.0.0.dist-info/METADATA": "Name: pkg-b\nVersion: 2.0.0\n",
+		"pkg_b-2.0.0.dist-info/WHEEL":    "Wheel-Version: 1.0\n",
+		"pkg_b-2.0.0.dist-info/RECORD":   "",
 	})
 
 	svc := installer.New(env)
@@ -273,10 +273,10 @@ func TestInstallContextCanceled(t *testing.T) {
 	wheelPath := filepath.Join(wheelDir, "pkg-1.0.0-py3-none-any.whl")
 
 	createWheel(t, wheelPath, map[string]string{
-		"pkg/__init__.py":                    "# pkg\n",
-		"pkg-1.0.0.dist-info/METADATA":       "Name: pkg\nVersion: 1.0.0\n",
-		"pkg-1.0.0.dist-info/WHEEL":          "Wheel-Version: 1.0\n",
-		"pkg-1.0.0.dist-info/RECORD":         "",
+		"pkg/__init__.py":              "# pkg\n",
+		"pkg-1.0.0.dist-info/METADATA": "Name: pkg\nVersion: 1.0.0\n",
+		"pkg-1.0.0.dist-info/WHEEL":    "Wheel-Version: 1.0\n",
+		"pkg-1.0.0.dist-info/RECORD":   "",
 	})
 
 	svc := installer.New(env)
@@ -337,12 +337,12 @@ func TestInstallWithConsoleScripts(t *testing.T) {
 	wheelPath := filepath.Join(wheelDir, "mycli-1.0.0-py3-none-any.whl")
 
 	createWheel(t, wheelPath, map[string]string{
-		"mycli/__init__.py":                       "# mycli\n",
-		"mycli/cli.py":                            "def main(): pass\n",
-		"mycli-1.0.0.dist-info/METADATA":          "Name: mycli\nVersion: 1.0.0\n",
-		"mycli-1.0.0.dist-info/WHEEL":             "Wheel-Version: 1.0\n",
-		"mycli-1.0.0.dist-info/RECORD":            "",
-		"mycli-1.0.0.dist-info/entry_points.txt":  "[console_scripts]\nmycli = mycli.cli:main\n",
+		"mycli/__init__.py":                      "# mycli\n",
+		"mycli/cli.py":                           "def main(): pass\n",
+		"mycli-1.0.0.dist-info/METADATA":         "Name: mycli\nVersion: 1.0.0\n",
+		"mycli-1.0.0.dist-info/WHEEL":            "Wheel-Version: 1.0\n",
+		"mycli-1.0.0.dist-info/RECORD":           "",
+		"mycli-1.0.0.dist-info/entry_points.txt": "[console_scripts]\nmycli = mycli.cli:main\n",
 	})
 
 	svc := installer.New(env)

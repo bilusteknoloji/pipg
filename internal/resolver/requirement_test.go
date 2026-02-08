@@ -8,10 +8,10 @@ import (
 
 func TestParseRequirement(t *testing.T) {
 	tests := []struct {
-		input     string
-		wantName  string
-		wantSpec  string
-		wantMark  string
+		input    string
+		wantName string
+		wantSpec string
+		wantMark string
 	}{
 		{"flask", "flask", "", ""},
 		{"Flask", "flask", "", ""},
