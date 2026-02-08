@@ -1,4 +1,4 @@
-![Version](https://img.shields.io/badge/version-0.1.1-orange.svg)
+![Version](https://img.shields.io/badge/version-0.1.2-orange.svg)
 ![Go](https://img.shields.io/github/go-mod/go-version/bilusteknoloji/pipg)
 [![Go Report Card](https://goreportcard.com/badge/github.com/bilusteknoloji/pipg)](https://goreportcard.com/report/github.com/bilusteknoloji/pipg)
 [![Run go tests](https://github.com/bilusteknoloji/pipg/actions/workflows/test.yml/badge.svg)](https://github.com/bilusteknoloji/pipg/actions/workflows/test.yml)
