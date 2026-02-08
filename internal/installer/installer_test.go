@@ -404,3 +404,103 @@ func TestWithLoggerIgnoresNil(t *testing.T) {
 	env := testEnv(t)
 	_ = installer.New(env, installer.WithLogger(nil))
 }
+
+func TestInstallWithPlatlib(t *testing.T) {
+	env := testEnv(t)
+	wheelDir := t.TempDir()
+	wheelPath := filepath.Join(wheelDir, "ext-1.0.0-py3-none-any.whl")
+
+	createWheel(t, wheelPath, map[string]string{
+		"ext-1.0.0.dist-info/METADATA":       "Name: ext\nVersion: 1.0.0\n",
+		"ext-1.0.0.dist-info/WHEEL":          "Wheel-Version: 1.0\n",
+		"ext-1.0.0.dist-info/RECORD":         "",
+		"ext-1.0.0.data/platlib/ext_native.py": "# native\n",
+	})
+
+	svc := installer.New(env)
+
+	err := svc.Install(context.Background(), []downloader.Result{
+		{Name: "ext", Version: "1.0.0", FilePath: wheelPath, Size: 100},
+	})
+	if err != nil {
+		t.Fatalf("Install() error: %v", err)
+	}
+
+	// platlib → site-packages/
+	platPath := filepath.Join(env.SitePackages, "ext_native.py")
+	if _, statErr := os.Stat(platPath); statErr != nil {
+		t.Errorf("platlib file not found: %v", statErr)
+	}
+}
+
+func TestInstallDataSkipsUnknownSubdir(t *testing.T) {
+	env := testEnv(t)
+	wheelDir := t.TempDir()
+	wheelPath := filepath.Join(wheelDir, "pkg-1.0.0-py3-none-any.whl")
+
+	createWheel(t, wheelPath, map[string]string{
+		"pkg/__init__.py":                    "# pkg\n",
+		"pkg-1.0.0.dist-info/METADATA":      "Name: pkg\nVersion: 1.0.0\n",
+		"pkg-1.0.0.dist-info/WHEEL":         "Wheel-Version: 1.0\n",
+		"pkg-1.0.0.dist-info/RECORD":        "",
+		"pkg-1.0.0.data/unknown/somefile.py": "# should be skipped\n",
+	})
+
+	svc := installer.New(env)
+
+	err := svc.Install(context.Background(), []downloader.Result{
+		{Name: "pkg", Version: "1.0.0", FilePath: wheelPath, Size: 100},
+	})
+	if err != nil {
+		t.Fatalf("Install() error: %v", err)
+	}
+
+	// The unknown subdir file should not exist anywhere.
+	entries := findFiles(t, env.Prefix, "somefile.py")
+	if len(entries) > 0 {
+		t.Errorf("unknown .data subdir file should be skipped, found: %v", entries)
+	}
+}
+
+func TestInstallDataSkipsEmptyRemainder(t *testing.T) {
+	env := testEnv(t)
+	wheelDir := t.TempDir()
+	wheelPath := filepath.Join(wheelDir, "pkg-1.0.0-py3-none-any.whl")
+
+	createWheel(t, wheelPath, map[string]string{
+		"pkg/__init__.py":               "# pkg\n",
+		"pkg-1.0.0.dist-info/METADATA":  "Name: pkg\nVersion: 1.0.0\n",
+		"pkg-1.0.0.dist-info/WHEEL":     "Wheel-Version: 1.0\n",
+		"pkg-1.0.0.dist-info/RECORD":    "",
+	})
+
+	svc := installer.New(env)
+
+	err := svc.Install(context.Background(), []downloader.Result{
+		{Name: "pkg", Version: "1.0.0", FilePath: wheelPath, Size: 100},
+	})
+	if err != nil {
+		t.Fatalf("Install() error: %v", err)
+	}
+}
+
+// findFiles recursively finds files matching the given name under root.
+func findFiles(t *testing.T, root, name string) []string {
+	t.Helper()
+
+	var found []string
+
+	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+
+		if !info.IsDir() && info.Name() == name {
+			found = append(found, path)
+		}
+
+		return nil
+	})
+
+	return found
+}
