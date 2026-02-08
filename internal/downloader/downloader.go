@@ -43,12 +43,19 @@ type Request struct {
 	Filename string // e.g., "flask-3.0.0-py3-none-any.whl"
 }
 
+// Cache defines the interface for a wheel cache used during downloads.
+type Cache interface {
+	Get(filename, expectedSHA256 string) (path string, ok bool)
+	Put(srcPath, filename string) error
+}
+
 // Result represents the outcome of downloading a single package.
 type Result struct {
 	Name     string
 	Version  string
 	FilePath string // path to the downloaded .whl file
 	Size     int64
+	Cached   bool // true if served from cache
 }
 
 // Option configures a Manager.
@@ -82,12 +89,20 @@ func WithLogger(l *slog.Logger) Option {
 	}
 }
 
+// WithCache sets the wheel cache for avoiding redundant downloads.
+func WithCache(c Cache) Option {
+	return func(m *Manager) {
+		m.cache = c
+	}
+}
+
 // Manager manages concurrent package downloads using errgroup.
 type Manager struct {
 	targetDir  string
 	maxWorkers int
 	httpClient *http.Client
 	logger     *slog.Logger
+	cache      Cache
 }
 
 // compile-time proof that Manager implements Downloader.
@@ -122,11 +137,41 @@ func (m *Manager) Download(ctx context.Context, requests []Request) ([]Result, e
 
 	for i, req := range requests {
 		g.Go(func() error {
+			// Check cache first.
+			if m.cache != nil {
+				if cachedPath, ok := m.cache.Get(req.Filename, req.SHA256); ok {
+					info, err := os.Stat(cachedPath)
+					if err == nil {
+						mu.Lock()
+						results[i] = Result{
+							Name:     req.Name,
+							Version:  req.Version,
+							FilePath: cachedPath,
+							Size:     info.Size(),
+							Cached:   true,
+						}
+						mu.Unlock()
+
+						return nil
+					}
+				}
+			}
+
 			m.logger.Debug("downloading", slog.String("package", req.Name), slog.String("url", req.URL))
 
 			result, err := m.downloadWithRetry(ctx, req)
 			if err != nil {
 				return fmt.Errorf("downloading %s: %w", req.Name, err)
+			}
+
+			// Store in cache after successful download.
+			if m.cache != nil {
+				if putErr := m.cache.Put(result.FilePath, req.Filename); putErr != nil {
+					m.logger.Debug("cache put failed",
+						slog.String("package", req.Name),
+						slog.String("error", putErr.Error()),
+					)
+				}
 			}
 
 			mu.Lock()

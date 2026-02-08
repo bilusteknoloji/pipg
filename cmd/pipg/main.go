@@ -16,6 +16,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/bilusteknoloji/pipg/internal/cache"
 	"github.com/bilusteknoloji/pipg/internal/downloader"
 	"github.com/bilusteknoloji/pipg/internal/installer"
 	"github.com/bilusteknoloji/pipg/internal/pypi"
@@ -219,10 +220,20 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("\nDownloading %d packages (%d workers)...\n", len(requests), workers)
 
+	wheelCache, err := cache.New(cache.WithLogger(logger))
+	if err != nil {
+		logger.Debug("cache unavailable, continuing without cache", slog.String("error", err.Error()))
+	}
+
 	dlOpts := []downloader.Option{
 		downloader.WithHTTPClient(httpClient),
 		downloader.WithLogger(logger),
 	}
+
+	if wheelCache != nil {
+		dlOpts = append(dlOpts, downloader.WithCache(wheelCache))
+	}
+
 	if jobs > 0 {
 		dlOpts = append(dlOpts, downloader.WithMaxWorkers(jobs))
 	}
@@ -235,7 +246,12 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, r := range results {
-		fmt.Printf("  ✓ %s (%s)\n", filepath.Base(r.FilePath), formatSize(r.Size))
+		suffix := ""
+		if r.Cached {
+			suffix = " (cached)"
+		}
+
+		fmt.Printf("  ✓ %s (%s)%s\n", filepath.Base(r.FilePath), formatSize(r.Size), suffix)
 	}
 
 	// --- Install ---

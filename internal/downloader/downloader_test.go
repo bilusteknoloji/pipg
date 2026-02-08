@@ -393,6 +393,29 @@ func TestWithLoggerIgnoresNil(t *testing.T) {
 	_ = downloader.New(dir, downloader.WithLogger(nil))
 }
 
+// mockCache implements downloader.Cache for testing.
+type mockCache struct {
+	store map[string]string // filename → path
+	puts  []string         // filenames that were Put
+}
+
+func newMockCache() *mockCache {
+	return &mockCache{store: make(map[string]string)}
+}
+
+func (c *mockCache) Get(filename, _ string) (string, bool) {
+	path, ok := c.store[filename]
+
+	return path, ok
+}
+
+func (c *mockCache) Put(srcPath, filename string) error {
+	c.puts = append(c.puts, filename)
+	c.store[filename] = srcPath
+
+	return nil
+}
+
 func TestDownloadFileRename(t *testing.T) {
 	content := []byte("final destination content")
 	hash := sha256Hex(content)
@@ -471,4 +494,128 @@ func TestDownloadPartialFailure(t *testing.T) {
 	}
 
 	fmt.Println("partial failure error:", err)
+}
+
+func TestDownloadCacheHit(t *testing.T) {
+	// Create a cached file — no HTTP server needed.
+	cacheDir := t.TempDir()
+	content := []byte("cached wheel data")
+	filename := "cached-1.0.0-py3-none-any.whl"
+	cachedPath := filepath.Join(cacheDir, filename)
+
+	if err := os.WriteFile(cachedPath, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	mc := newMockCache()
+	mc.store[filename] = cachedPath
+
+	dir := t.TempDir()
+	mgr := downloader.New(dir, downloader.WithCache(mc))
+
+	results, err := mgr.Download(context.Background(), []downloader.Request{
+		{
+			Name:     "cached",
+			Version:  "1.0.0",
+			URL:      "http://should-not-be-called/cached.whl",
+			SHA256:   sha256Hex(content),
+			Filename: filename,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Download() error: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	if !results[0].Cached {
+		t.Error("expected Cached=true for cache hit")
+	}
+
+	if results[0].FilePath != cachedPath {
+		t.Errorf("FilePath = %q, want %q", results[0].FilePath, cachedPath)
+	}
+
+	if results[0].Size != int64(len(content)) {
+		t.Errorf("Size = %d, want %d", results[0].Size, len(content))
+	}
+}
+
+func TestDownloadCacheMissThenPut(t *testing.T) {
+	content := []byte("fresh download")
+	hash := sha256Hex(content)
+
+	srv := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(content)
+	}))
+
+	mc := newMockCache()
+
+	dir := t.TempDir()
+	mgr := downloader.New(dir,
+		downloader.WithHTTPClient(srv.Client()),
+		downloader.WithCache(mc),
+	)
+
+	filename := "fresh-1.0.0-py3-none-any.whl"
+
+	results, err := mgr.Download(context.Background(), []downloader.Request{
+		{
+			Name:     "fresh",
+			Version:  "1.0.0",
+			URL:      srv.URL + "/fresh.whl",
+			SHA256:   hash,
+			Filename: filename,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Download() error: %v", err)
+	}
+
+	if results[0].Cached {
+		t.Error("expected Cached=false for cache miss")
+	}
+
+	// Verify Put was called.
+	if len(mc.puts) != 1 || mc.puts[0] != filename {
+		t.Errorf("expected Put(%q), got %v", filename, mc.puts)
+	}
+}
+
+func TestDownloadNilCacheNoEffect(t *testing.T) {
+	content := []byte("no cache content")
+	hash := sha256Hex(content)
+
+	srv := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(content)
+	}))
+
+	dir := t.TempDir()
+	mgr := downloader.New(dir,
+		downloader.WithHTTPClient(srv.Client()),
+		downloader.WithCache(nil),
+	)
+
+	results, err := mgr.Download(context.Background(), []downloader.Request{
+		{
+			Name:     "pkg",
+			Version:  "1.0.0",
+			URL:      srv.URL + "/pkg.whl",
+			SHA256:   hash,
+			Filename: "pkg-1.0.0-py3-none-any.whl",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Download() error: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	if results[0].Cached {
+		t.Error("expected Cached=false with nil cache")
+	}
 }

@@ -88,7 +88,39 @@ Flags:
     │   ├── resolver/      Dependency resolution + PEP 440/508 parsing
     │   ├── downloader/    Concurrent download manager + wheel selection
     │   ├── installer/     Wheel extraction to site-packages
+    │   ├── cache/         Wheel cache (SHA256-verified)
     │   └── python/        Python environment detection
+
+---
+
+## Cache
+
+Downloaded wheels are cached locally and reused on subsequent installs.
+Cache hits are verified with SHA256 before use — corrupted files are
+automatically removed.
+
+Default cache location:
+
+| Platform | Path |
+|----------|------|
+| macOS | `~/Library/Caches/pipg/wheels` |
+| Linux | `~/.cache/pipg/wheels` (or `$XDG_CACHE_HOME/pipg/wheels`) |
+
+Override with the `PIPG_CACHE_DIR` environment variable:
+
+```bash
+export PIPG_CACHE_DIR=/tmp/my-pipg-cache
+pipg install requests
+```
+
+Cached packages show `(cached)` in the output:
+
+```
+Downloading 3 packages (8 workers)...
+  ✓ requests-2.31.0-py3-none-any.whl (101 KB) (cached)
+  ✓ charset-normalizer-3.3.2-py3-none-any.whl (48 KB) (cached)
+  ✓ idna-3.6-py3-none-any.whl (61 KB)
+```
 
 ---
 
