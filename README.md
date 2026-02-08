@@ -3,6 +3,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/bilusteknoloji/pipg)](https://goreportcard.com/report/github.com/bilusteknoloji/pipg)
 [![Run go tests](https://github.com/bilusteknoloji/pipg/actions/workflows/test.yml/badge.svg)](https://github.com/bilusteknoloji/pipg/actions/workflows/test.yml)
 [![Run golangci-lint](https://github.com/bilusteknoloji/pipg/actions/workflows/lint.yml/badge.svg)](https://github.com/bilusteknoloji/pipg/actions/workflows/lint.yml)
+[![codecov](https://codecov.io/gh/bilusteknoloji/pipg/graph/badge.svg?token=RAZD1ND0H6)](https://codecov.io/gh/bilusteknoloji/pipg)
 
 # pipg
 

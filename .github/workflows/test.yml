@@ -1,6 +1,7 @@
 name: Run go tests
 
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - '**.go'
@@ -28,4 +29,11 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
-      - run: go test -race -failfast -count=1 ./...
+      - name: Run Tests
+        run: go test -coverprofile=coverage.txt -race -failfast -count=1 ./...
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: bilusteknoloji/pipg
