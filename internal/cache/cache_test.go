@@ -125,8 +125,8 @@ func TestPut(t *testing.T) {
 	}
 
 	filename := "pkg-1.0.0-py3-none-any.whl"
-	if err := m.Put(srcPath, filename); err != nil {
-		t.Fatalf("Put() error: %v", err)
+	if putErr := m.Put(srcPath, filename); putErr != nil {
+		t.Fatalf("Put() error: %v", putErr)
 	}
 
 	// Verify cached file exists and matches.
@@ -163,8 +163,8 @@ func TestPutOverwritesExisting(t *testing.T) {
 		t.Fatalf("New() error: %v", err)
 	}
 
-	if err := m.Put(srcPath, filename); err != nil {
-		t.Fatalf("Put() error: %v", err)
+	if putErr := m.Put(srcPath, filename); putErr != nil {
+		t.Fatalf("Put() error: %v", putErr)
 	}
 
 	got, err := os.ReadFile(filepath.Join(cacheDir, filename))

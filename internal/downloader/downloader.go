@@ -253,14 +253,14 @@ func (m *Manager) doDownload(ctx context.Context, req Request) (Result, error) {
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		err := fmt.Errorf("unexpected status %d from %s", resp.StatusCode, req.URL)
+		statusErr := fmt.Errorf("unexpected status %d from %s", resp.StatusCode, req.URL)
 
 		// 5xx errors are transient; 4xx are permanent.
 		if resp.StatusCode >= http.StatusInternalServerError {
-			return Result{}, &retryableError{err: err}
+			return Result{}, &retryableError{err: statusErr}
 		}
 
-		return Result{}, err
+		return Result{}, statusErr
 	}
 
 	destPath := filepath.Join(m.targetDir, req.Filename)

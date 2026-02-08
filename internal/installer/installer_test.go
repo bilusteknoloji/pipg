@@ -100,8 +100,8 @@ func TestInstallSimpleWheel(t *testing.T) {
 
 	// Verify dist-info was extracted.
 	metadataPath := filepath.Join(env.SitePackages, "six-1.16.0.dist-info", "METADATA")
-	if _, err := os.Stat(metadataPath); err != nil {
-		t.Errorf("METADATA not found: %v", err)
+	if _, statErr := os.Stat(metadataPath); statErr != nil {
+		t.Errorf("METADATA not found: %v", statErr)
 	}
 
 	// Verify INSTALLER file was written.
