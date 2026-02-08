@@ -1,0 +1,31 @@
+name: Run go tests
+
+on:
+  pull_request:
+    paths:
+      - '**.go'
+  push:
+    branches:
+      - main
+    tags-ignore:
+      - '**'
+    paths:
+      - '**.go'
+
+concurrency:
+  group: pipg-test
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        id: go
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - run: go test -race -failfast -count=1 ./...
