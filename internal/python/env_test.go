@@ -26,7 +26,8 @@ func TestDetectVirtualEnv(t *testing.T) {
 			"/home/user/myproject/.venv\n"+
 				"/home/user/myproject/.venv/lib/python3.12/site-packages\n"+
 				"linux-x86_64\n"+
-				"312\n", nil,
+				"312\n"+
+				"/home/user/myproject/.venv/bin/python3\n", nil,
 		)),
 		python.WithEnvLookup(fakeEnv(map[string]string{
 			"VIRTUAL_ENV": "/home/user/myproject/.venv",
@@ -53,8 +54,8 @@ func TestDetectVirtualEnv(t *testing.T) {
 	if env.PythonVersion != "312" {
 		t.Errorf("expected python version %q, got %q", "312", env.PythonVersion)
 	}
-	if env.PythonPath != "python3" {
-		t.Errorf("expected python path %q, got %q", "python3", env.PythonPath)
+	if env.PythonPath != "/home/user/myproject/.venv/bin/python3" {
+		t.Errorf("expected python path %q, got %q", "/home/user/myproject/.venv/bin/python3", env.PythonPath)
 	}
 }
 
@@ -64,7 +65,8 @@ func TestDetectSystemPython(t *testing.T) {
 			"/usr\n"+
 				"/usr/lib/python3.11/site-packages\n"+
 				"macosx-14.0-arm64\n"+
-				"311\n", nil,
+				"311\n"+
+				"/usr/bin/python3\n", nil,
 		)),
 		python.WithEnvLookup(fakeEnv(nil)),
 	)
@@ -99,7 +101,7 @@ func TestDetectCustomPythonBin(t *testing.T) {
 		python.WithCommandRunner(func(_ context.Context, name string, _ ...string) ([]byte, error) {
 			capturedName = name
 
-			return []byte("/usr/local\n/usr/local/lib/python3.12/site-packages\nlinux-x86_64\n312\n"), nil
+			return []byte("/usr/local\n/usr/local/lib/python3.12/site-packages\nlinux-x86_64\n312\n/usr/local/bin/python3.12\n"), nil
 		}),
 		python.WithEnvLookup(fakeEnv(nil)),
 	)
@@ -113,7 +115,7 @@ func TestDetectCustomPythonBin(t *testing.T) {
 		t.Errorf("expected command %q, got %q", "/usr/local/bin/python3.12", capturedName)
 	}
 	if env.PythonPath != "/usr/local/bin/python3.12" {
-		t.Errorf("expected python path %q, got %q", "/usr/local/bin/python3.12", env.PythonPath)
+		t.Errorf("expected python path %q, got %q (from sys.executable)", "/usr/local/bin/python3.12", env.PythonPath)
 	}
 }
 
@@ -135,8 +137,8 @@ func TestDetectUnexpectedOutput(t *testing.T) {
 		output string
 	}{
 		{"empty output", ""},
-		{"too few lines", "/usr\n/usr/lib/site-packages\n"},
-		{"too many lines", "/usr\n/usr/lib/site-packages\nlinux\n312\nextra\n"},
+		{"too few lines", "/usr\n/usr/lib/site-packages\nlinux\n312\n"},
+		{"too many lines", "/usr\n/usr/lib/site-packages\nlinux\n312\n/usr/bin/python3\nextra\n"},
 	}
 
 	for _, tt := range tests {
@@ -157,7 +159,7 @@ func TestDetectUnexpectedOutput(t *testing.T) {
 func TestDetectTrimsWhitespace(t *testing.T) {
 	svc := python.New(
 		python.WithCommandRunner(fakeRunner(
-			"  /usr  \n  /usr/lib/python3.12/site-packages  \n  linux-x86_64  \n  312  \n", nil,
+			"  /usr  \n  /usr/lib/python3.12/site-packages  \n  linux-x86_64  \n  312  \n  /usr/bin/python3  \n", nil,
 		)),
 		python.WithEnvLookup(fakeEnv(nil)),
 	)

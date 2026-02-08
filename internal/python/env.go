@@ -13,10 +13,11 @@ const pythonScript = `import sys, site, sysconfig
 print(sys.prefix)
 print(site.getsitepackages()[0])
 print(sysconfig.get_platform())
-print(f'{sys.version_info.major}{sys.version_info.minor}')`
+print(f'{sys.version_info.major}{sys.version_info.minor}')
+print(sys.executable)`
 
 // expectedOutputLines is the number of lines expected from pythonScript.
-const expectedOutputLines = 4
+const expectedOutputLines = 5
 
 // Detector defines the interface for detecting a Python environment.
 type Detector interface {
@@ -102,9 +103,7 @@ func New(opts ...Option) *Service {
 // It first checks the VIRTUAL_ENV env var, then runs the python binary
 // to determine prefix, site-packages path, platform tag, and version.
 func (s *Service) Detect(ctx context.Context) (*Environment, error) {
-	env := &Environment{
-		PythonPath: s.pythonBin,
-	}
+	env := &Environment{}
 
 	if venv := s.getenv("VIRTUAL_ENV"); venv != "" {
 		env.IsVirtualEnv = true
@@ -125,6 +124,7 @@ func (s *Service) Detect(ctx context.Context) (*Environment, error) {
 	env.SitePackages = strings.TrimSpace(lines[1])
 	env.PlatformTag = strings.TrimSpace(lines[2])
 	env.PythonVersion = strings.TrimSpace(lines[3])
+	env.PythonPath = strings.TrimSpace(lines[4])
 
 	return env, nil
 }

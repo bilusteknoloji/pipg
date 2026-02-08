@@ -331,6 +331,65 @@ func TestInstallNoDistInfo(t *testing.T) {
 	}
 }
 
+func TestInstallWithConsoleScripts(t *testing.T) {
+	env := testEnv(t)
+	wheelDir := t.TempDir()
+	wheelPath := filepath.Join(wheelDir, "mycli-1.0.0-py3-none-any.whl")
+
+	createWheel(t, wheelPath, map[string]string{
+		"mycli/__init__.py":                       "# mycli\n",
+		"mycli/cli.py":                            "def main(): pass\n",
+		"mycli-1.0.0.dist-info/METADATA":          "Name: mycli\nVersion: 1.0.0\n",
+		"mycli-1.0.0.dist-info/WHEEL":             "Wheel-Version: 1.0\n",
+		"mycli-1.0.0.dist-info/RECORD":            "",
+		"mycli-1.0.0.dist-info/entry_points.txt":  "[console_scripts]\nmycli = mycli.cli:main\n",
+	})
+
+	svc := installer.New(env)
+
+	err := svc.Install(context.Background(), []downloader.Result{
+		{Name: "mycli", Version: "1.0.0", FilePath: wheelPath, Size: 100},
+	})
+	if err != nil {
+		t.Fatalf("Install() error: %v", err)
+	}
+
+	// Verify console script was generated in bin/.
+	scriptPath := filepath.Join(env.Prefix, "bin", "mycli")
+	info, err := os.Stat(scriptPath)
+	if err != nil {
+		t.Fatalf("console script not found: %v", err)
+	}
+
+	if info.Mode()&0o111 == 0 {
+		t.Errorf("script should be executable, mode: %v", info.Mode())
+	}
+
+	content, err := os.ReadFile(scriptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(string(content), "from mycli.cli import main") {
+		t.Error("script should contain correct import")
+	}
+
+	if !strings.Contains(string(content), "sys.exit(main())") {
+		t.Error("script should call sys.exit with main()")
+	}
+
+	// Verify RECORD includes the script.
+	recordPath := filepath.Join(env.SitePackages, "mycli-1.0.0.dist-info", "RECORD")
+	recordContent, err := os.ReadFile(recordPath)
+	if err != nil {
+		t.Fatalf("reading RECORD: %v", err)
+	}
+
+	if !strings.Contains(string(recordContent), "bin/mycli") {
+		t.Error("RECORD should contain console script entry")
+	}
+}
+
 func TestInstallEmptyDownloads(t *testing.T) {
 	env := testEnv(t)
 	svc := installer.New(env)

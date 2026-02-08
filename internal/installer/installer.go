@@ -157,6 +157,15 @@ func (s *Service) installWheel(dl downloader.Result) error {
 	relInstaller, _ := filepath.Rel(siteDir, installerPath)
 	records = append(records, RecordEntry{Path: relInstaller, Hash: hash, Size: size})
 
+	// Generate console_scripts from entry_points.txt.
+	binDir := filepath.Join(s.env.Prefix, "bin")
+	scriptRecords, err := InstallConsoleScripts(distInfoDir, binDir, s.env.PythonPath)
+	if err != nil {
+		return fmt.Errorf("installing console scripts: %w", err)
+	}
+
+	records = append(records, scriptRecords...)
+
 	if err := WriteRecord(distInfoDir, records); err != nil {
 		return fmt.Errorf("writing RECORD: %w", err)
 	}
