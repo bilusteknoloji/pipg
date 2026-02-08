@@ -3,6 +3,7 @@ package cache_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -226,6 +227,90 @@ func TestNewCreatesDirectory(t *testing.T) {
 
 	if !info.IsDir() {
 		t.Error("expected directory, got file")
+	}
+}
+
+func TestWithLoggerOption(t *testing.T) {
+	dir := t.TempDir()
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	m, err := cache.New(cache.WithDir(dir), cache.WithLogger(logger))
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+
+	// Verify it works by doing a Get (miss is fine, just no panic).
+	_, ok := m.Get("nonexistent.whl", "")
+	if ok {
+		t.Error("expected miss")
+	}
+}
+
+func TestWithLoggerNilIgnored(t *testing.T) {
+	dir := t.TempDir()
+
+	// Should not panic with nil logger.
+	m, err := cache.New(cache.WithDir(dir), cache.WithLogger(nil))
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+
+	_, ok := m.Get("nonexistent.whl", "")
+	if ok {
+		t.Error("expected miss")
+	}
+}
+
+func TestPutSourceNotFound(t *testing.T) {
+	dir := t.TempDir()
+
+	m, err := cache.New(cache.WithDir(dir))
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+
+	err = m.Put("/nonexistent/path/file.whl", "test.whl")
+	if err == nil {
+		t.Fatal("expected error for missing source, got nil")
+	}
+}
+
+func TestGetDirectoryIgnored(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a directory with the same name as a wheel file.
+	if mkErr := os.Mkdir(filepath.Join(dir, "fake.whl"), 0o755); mkErr != nil {
+		t.Fatal(mkErr)
+	}
+
+	m, err := cache.New(cache.WithDir(dir))
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+
+	_, ok := m.Get("fake.whl", "")
+	if ok {
+		t.Error("expected miss for directory entry")
+	}
+}
+
+func TestNewDefaultDirWithoutEnvVar(t *testing.T) {
+	// Clear PIPG_CACHE_DIR so the platform default is used.
+	t.Setenv("PIPG_CACHE_DIR", "")
+
+	m, err := cache.New()
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+
+	srcDir := t.TempDir()
+	srcPath := filepath.Join(srcDir, "test.whl")
+
+	writeFile(t, srcPath, []byte("default dir data"))
+
+	// Just verify Put works — the default dir was created successfully.
+	if putErr := m.Put(srcPath, "test.whl"); putErr != nil {
+		t.Fatalf("Put() error: %v", putErr)
 	}
 }
 
