@@ -24,7 +24,7 @@ import (
 	"github.com/bilusteknoloji/pipg/internal/resolver"
 )
 
-var version = "0.1.0"
+var version = "0.1.1"
 
 func main() {
 	if err := run(); err != nil {
