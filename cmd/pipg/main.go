@@ -24,7 +24,7 @@ import (
 	"github.com/bilusteknoloji/pipg/internal/resolver"
 )
 
-var version = "dev"
+var version = "0.0.0"
 
 func main() {
 	if err := run(); err != nil {
@@ -349,10 +349,10 @@ func buildMarkerEnv(env *python.Environment) resolver.MarkerEnv {
 
 // buildCompatTags generates PEP 425 compatible wheel tags ordered by priority.
 func buildCompatTags(env *python.Environment) []downloader.WheelTag {
-	pyVer := env.PythonVersion                    // e.g., "312"
-	platform := wheelPlatform(env.PlatformTag)     // e.g., "macosx_14_0_arm64"
-	cp := "cp" + pyVer                            // e.g., "cp312"
-	pyMajor := "py" + pyVer[:1]                   // e.g., "py3"
+	pyVer := env.PythonVersion                 // e.g., "312"
+	platform := wheelPlatform(env.PlatformTag) // e.g., "macosx_14_0_arm64"
+	cp := "cp" + pyVer                         // e.g., "cp312"
+	pyMajor := "py" + pyVer[:1]                // e.g., "py3"
 
 	var tags []downloader.WheelTag
 
